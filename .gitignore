@@ -16,9 +16,17 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+.env
+.env.*
+.env.local
+.env.production
+.env.development
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+ 
+# IMPORTANT: Do NOT commit any file containing secrets (API keys, tokens).
+# Use `.env.example` to store non-secret variable names for contributors.
