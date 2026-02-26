@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -17,24 +17,53 @@ function CategoriesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", icon: "tag", color: "#8B5CF6" });
 
-  const { data: categories = [] } = useQuery({
+  const { data: categories = [], isLoading, error: queryError } = useQuery({
     queryKey: ["categories", user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from("categories").select("*").order("is_default", { ascending: false });
-      if (error) throw error;
-      return data;
+      if (!user?.id) {
+        throw new Error("Usuário não autenticado. Faça login para ver categorias.");
+      }
+
+      const { data, error } = await supabase
+        .from("categories")
+        .select("*")
+        .order("is_default", { ascending: false });
+      
+      if (error) {
+        throw new Error(`Erro ao buscar categorias: ${error.message}`);
+      }
+      return data || [];
     },
     enabled: !!user,
   });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!user?.id) {
+        throw new Error("Você precisa estar autenticado para criar categorias");
+      }
+
+      if (!form.name.trim()) {
+        throw new Error("Nome da categoria é obrigatório");
+      }
+
       if (editingId) {
-        const { error } = await supabase.from("categories").update({ name: form.name, icon: form.icon, color: form.color }).eq("id", editingId);
-        if (error) throw error;
+        const { error } = await supabase
+          .from("categories")
+          .update({ name: form.name, icon: form.icon, color: form.color })
+          .eq("id", editingId);
+        if (error) {
+          console.error("Erro ao atualizar:", error);
+          throw error;
+        }
       } else {
-        const { error } = await supabase.from("categories").insert({ name: form.name, icon: form.icon, color: form.color, user_id: user!.id });
-        if (error) throw error;
+        const { error } = await supabase
+          .from("categories")
+          .insert({ name: form.name, icon: form.icon, color: form.color, user_id: user.id });
+        if (error) {
+          console.error("Erro ao criar:", error);
+          throw error;
+        }
       }
     },
     onSuccess: () => {
@@ -43,7 +72,11 @@ function CategoriesPage() {
       resetForm();
       toast.success(editingId ? "Categoria atualizada!" : "Categoria criada!");
     },
-    onError: () => toast.error("Erro ao salvar categoria"),
+    onError: (error: any) => {
+      const errorMsg = error?.message || "Erro ao salvar categoria";
+      console.error("Erro na mutação de categorias:", errorMsg);
+      toast.error(errorMsg);
+    },
   });
 
   const deleteMutation = useMutation({
@@ -71,8 +104,42 @@ function CategoriesPage() {
         </Button>
       </div>
 
+      {/* Loading State */}
+      {isLoading && (
+        <div className="glass-card p-8 text-center">
+          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-muted-foreground">Carregando categorias...</p>
+        </div>
+      )}
+
+      {/* Error State */}
+      {queryError && !isLoading && (
+        <div className="glass-card p-6 border border-destructive/50 bg-destructive/5">
+          <div className="flex gap-3 items-start">
+            <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-destructive mb-1">Erro ao carregar categorias</h3>
+              <p className="text-sm text-muted-foreground">{queryError.message}</p>
+              <p className="text-xs text-muted-foreground mt-2">
+                Abra o console (F12) para mais detalhes. Se o erro persistir, verifique seu login.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!isLoading && !queryError && categories.length === 0 && (
+        <div className="glass-card p-8 text-center">
+          <p className="text-muted-foreground mb-4">Nenhuma categoria encontrada</p>
+          <Button onClick={() => { resetForm(); setDialogOpen(true); }} variant="outline">
+            <Plus className="w-4 h-4 mr-2" /> Criar primeira categoria
+          </Button>
+        </div>
+      )}
+
       {/* Custom Categories */}
-      {customCats.length > 0 && (
+      {!isLoading && !queryError && customCats.length > 0 && (
         <div className="space-y-2">
           <h2 className="text-sm font-medium text-muted-foreground">Minhas Categorias</h2>
           <div className="glass-card divide-y divide-border/50">
@@ -95,19 +162,21 @@ function CategoriesPage() {
       )}
 
       {/* Default Categories */}
-      <div className="space-y-2">
-        <h2 className="text-sm font-medium text-muted-foreground">Categorias Padrão</h2>
-        <div className="glass-card divide-y divide-border/50">
-          {defaultCats.map((c) => (
-            <div key={c.id} className="flex items-center gap-3 p-4">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold" style={{ backgroundColor: c.color + "20", color: c.color }}>
-                {c.name.charAt(0).toUpperCase()}
+      {!isLoading && !queryError && defaultCats.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-medium text-muted-foreground">Categorias Padrão</h2>
+          <div className="glass-card divide-y divide-border/50">
+            {defaultCats.map((c) => (
+              <div key={c.id} className="flex items-center gap-3 p-4">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold" style={{ backgroundColor: c.color + "20", color: c.color }}>
+                  {c.name.charAt(0).toUpperCase()}
+                </div>
+                <span className="font-medium">{c.name}</span>
               </div>
-              <span className="font-medium">{c.name}</span>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -125,7 +194,7 @@ function CategoriesPage() {
                 ))}
               </div>
             </div>
-            <Button type="submit" className="w-full gradient-purple border-0" disabled={saveMutation.isPending}>
+            <Button type="submit" className="w-full gradient-purple border-0" disabled={saveMutation.isPending || !form.name.trim()}>
               {saveMutation.isPending ? "Salvando..." : "Salvar"}
             </Button>
           </form>
